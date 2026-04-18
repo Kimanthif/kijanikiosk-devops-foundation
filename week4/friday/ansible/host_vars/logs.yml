@@ -1,0 +1,2 @@
+app_port: 9200
+service_name: kk-logs
