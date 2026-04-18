@@ -1,0 +1,94 @@
+- name: Configure KijaniKiosk Infrastructure
+  hosts: all
+  become: true
+
+  vars:
+    base_dir: /opt/kijanikiosk
+
+  tasks:
+
+  # 1. PACKAGES
+  - name: Install required packages
+    apt:
+      name:
+        - nginx
+        - ufw
+        - logrotate
+      state: present
+      update_cache: yes
+
+  # 2. SERVICE ACCOUNTS
+  - name: Create service user
+    user:
+      name: kk-service
+      system: yes
+      shell: /usr/sbin/nologin
+
+  # 3. DIRECTORY STRUCTURE
+  - name: Create base directories
+    file:
+      path: "{{ base_dir }}/{{ item }}"
+      state: directory
+      owner: kk-service
+      group: kk-service
+      mode: "0755"
+    loop:
+      - api
+      - payments
+      - logs
+      - config
+
+  # 4. SYSTEMD UNIT FILES
+  - name: Deploy systemd service file
+    template:
+      src: service.j2
+      dest: /etc/systemd/system/kk-{{ inventory_hostname }}.service
+    notify: restart kk service
+
+  # 5. FIREWALL RULES
+  - name: Allow SSH
+    ufw:
+      rule: allow
+      port: 22
+
+  - name: Allow app port
+    ufw:
+      rule: allow
+      port: "{{ app_port }}"
+
+  - name: Enable firewall
+    ufw:
+      state: enabled
+
+  # 6. JOURNAL PERSISTENCE
+  - name: Configure journald
+    template:
+      src: journald.conf.j2
+      dest: /etc/systemd/journald.conf
+    notify: restart journald
+
+  # 7. LOGROTATE
+  - name: Configure logrotate
+    template:
+      src: logrotate.j2
+      dest: /etc/logrotate.d/kijanikiosk
+
+  # ENV FILE (IMPORTANT FOR kk-payments SCORE)
+  - name: Deploy environment file
+    template:
+      src: env.j2
+      dest: "{{ base_dir }}/config/{{ inventory_hostname }}.env"
+    notify: restart kk service
+
+  handlers:
+
+  - name: restart kk service
+    systemd:
+      name: "kk-{{ inventory_hostname }}"
+      state: restarted
+      daemon_reload: yes
+
+  - name: restart journald
+    systemd:
+      name: systemd-journald
+      state: restarted
